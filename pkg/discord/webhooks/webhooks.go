@@ -3,27 +3,28 @@ package webhooks
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/thompsonja/discord_bots_lib/pkg/discord/interactions"
 	"github.com/thompsonja/discord_bots_lib/pkg/gcp/secrets"
+	"github.com/thompsonja/discord_bots_lib/pkg/logger"
 )
 
 type WebhookFunc func(*Client, *discordgo.Interaction, *http.Request) error
 
 type Client struct {
-	commands  []*discordgo.ApplicationCommand
-	port      int
-	epk       []byte
-	fns       map[string]WebhookFunc
-	secretKey string
-	projectID string
-	session   *discordgo.Session
-	appID     string
-	logger    *interactions.InteractionLogger
-	pool      chan func()
+	commands          []*discordgo.ApplicationCommand
+	port              int
+	epk               []byte
+	fns               map[string]WebhookFunc
+	secretKey         string
+	projectID         string
+	session           *discordgo.Session
+	appID             string
+	interactionLogger *interactions.InteractionLogger
+	logger            logger.Logger
+	pool              chan func()
 }
 
 type ClientConfig struct {
@@ -35,6 +36,7 @@ type ClientConfig struct {
 	ProjectID string
 	AppID     string
 	PoolSize  int
+	logger    logger.Logger
 }
 
 func NewClient(cfg ClientConfig) (*Client, error) {
@@ -53,6 +55,10 @@ func NewClient(cfg ClientConfig) (*Client, error) {
 	if cfg.AppID == "" {
 		return nil, fmt.Errorf("config AppID must be set")
 	}
+	l := cfg.logger
+	if l == nil {
+		l = &logger.StandardLogger{}
+	}
 	poolSize := 100
 	if cfg.PoolSize > 0 {
 		poolSize = cfg.PoolSize
@@ -70,20 +76,21 @@ func NewClient(cfg ClientConfig) (*Client, error) {
 		}()
 	}
 	return &Client{
-		commands:  cfg.Commands,
-		port:      port,
-		epk:       cfg.Epk,
-		fns:       cfg.Fns,
-		secretKey: cfg.SecretKey,
-		projectID: cfg.ProjectID,
-		appID:     cfg.AppID,
-		logger:    &interactions.InteractionLogger{},
-		pool:      pool,
+		commands:          cfg.Commands,
+		port:              port,
+		epk:               cfg.Epk,
+		fns:               cfg.Fns,
+		secretKey:         cfg.SecretKey,
+		projectID:         cfg.ProjectID,
+		appID:             cfg.AppID,
+		interactionLogger: &interactions.InteractionLogger{},
+		logger:            l,
+		pool:              pool,
 	}, nil
 }
 
 func (c *Client) handlePing(w http.ResponseWriter) error {
-	log.Println("Got a ping request")
+	c.logger.Info("Got a ping request")
 	if _, err := w.Write([]byte(`{"type":1}`)); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		return fmt.Errorf("w.Write: %v", err)
@@ -114,7 +121,7 @@ func (c *Client) SendFilesResponse(i *discordgo.Interaction, files []*discordgo.
 		return fmt.Errorf("c.updateSession: %v", err)
 	}
 
-	c.logger.SendEditedInteractionFiles(c.session, i, files)
+	c.interactionLogger.SendEditedInteractionFiles(c.session, i, files)
 	return nil
 }
 
@@ -127,7 +134,7 @@ func (c *Client) SendStringResponse(i *discordgo.Interaction, msg string) error 
 		return fmt.Errorf("interaction is nil")
 	}
 
-	c.logger.SendEditedInteractionMessage(c.session, i, msg)
+	c.interactionLogger.SendEditedInteractionMessage(c.session, i, msg)
 	return nil
 }
 
@@ -165,7 +172,7 @@ func (c *Client) DeleteCommands() error {
 		return fmt.Errorf("c.session.ApplicationCommands: %v", err)
 	}
 	for _, cmd := range cmds {
-		log.Printf("Deleting command %s (name %s) for app ID %s\n", cmd.ID, cmd.Name, c.appID)
+		c.logger.Infof("Deleting command %s (name %s) for app ID %s\n", cmd.ID, cmd.Name, c.appID)
 		if err := c.session.ApplicationCommandDelete(c.appID, "", cmd.ID); err != nil {
 			return fmt.Errorf("c.session.ApplicationCommandDelete(%s): %v", cmd.Name, err)
 		}
@@ -178,7 +185,7 @@ func (c *Client) UpdateCommands() error {
 		return fmt.Errorf("c.updateSession: %v", err)
 	}
 	for _, v := range c.commands {
-		log.Printf("Creating command %s (name %s) for app ID %s\n", v.ID, v.Name, c.appID)
+		c.logger.Infof("Creating command %s (name %s) for app ID %s\n", v.ID, v.Name, c.appID)
 		_, err := c.session.ApplicationCommandCreate(c.appID, "", v)
 		if err != nil {
 			return fmt.Errorf("cannot create '%v' command: %v", v.Name, err)
@@ -211,7 +218,7 @@ func (c *Client) ListenAndServe() error {
 			fmt.Fprint(w, "Unauthorized")
 			return
 		}
-		log.Println("Got an authorized request")
+		c.logger.Info("Got an authorized request")
 		if r.Method != "POST" {
 			w.WriteHeader(http.StatusBadRequest)
 			fmt.Fprintf(w, "Unsupported method %v", r.Method)
@@ -220,29 +227,29 @@ func (c *Client) ListenAndServe() error {
 
 		var i discordgo.Interaction
 		if err := json.NewDecoder(r.Body).Decode(&i); err != nil {
-			log.Printf("json.NewDecoder: %v\n", err)
+			c.logger.Infof("json.NewDecoder: %v\n", err)
 			if err := c.SendStringResponse(&i, fmt.Sprintf("json.NewDecoder: %v", err)); err != nil {
-				log.Printf("c.SendStringResponse: %v", err)
+				c.logger.Infof("c.SendStringResponse: %v", err)
 			}
 			return
 		}
 
 		if i.Type == discordgo.InteractionPing {
 			if err := c.handlePing(w); err != nil {
-				log.Printf("c.handlePing: %v", err)
+				c.logger.Infof("c.handlePing: %v", err)
 			}
 			return
 		}
 
 		if err := c.SendDeferredResponse(w); err != nil {
-			log.Printf("c.SendDeferredResponse: %v", err)
+			c.logger.Infof("c.SendDeferredResponse: %v", err)
 		}
 		go func() {
 			c.pool <- func() {
 				if err := c.handlePost(w, &i, r); err != nil {
-					log.Printf("handlePost: %v\n", err)
+					c.logger.Infof("handlePost: %v\n", err)
 					if err := c.SendStringResponse(&i, fmt.Sprintf("handlePost: %v", err)); err != nil {
-						log.Printf("c.SendStringResponse: %v", err)
+						c.logger.Infof("c.SendStringResponse: %v", err)
 					}
 				}
 			}
@@ -250,4 +257,28 @@ func (c *Client) ListenAndServe() error {
 	})
 
 	return http.ListenAndServe(fmt.Sprintf(":%d", c.port), nil)
+}
+
+func (c *Client) Run(destroyCommands, updateCommands bool) error {
+	if destroyCommands {
+		c.logger.Info("Destroying commands...")
+		if err := c.DeleteCommands(); err != nil {
+			return fmt.Errorf("c.DestroyCommands: %v", err)
+		}
+		c.logger.Info("Done")
+	}
+
+	if updateCommands {
+		c.logger.Info("Adding commands...")
+		if err := c.UpdateCommands(); err != nil {
+			return fmt.Errorf("c.UpdateCommands: %v", err)
+		}
+		c.logger.Info("Done")
+	}
+
+	c.logger.Infof("Starting server at port %d\n", c.port)
+	if err := c.ListenAndServe(); err != nil {
+		return fmt.Errorf("c.ListenAndServe: %v", err)
+	}
+	return nil
 }
