@@ -227,30 +227,27 @@ func (c *Client) ListenAndServe() error {
 
 		var i discordgo.Interaction
 		if err := json.NewDecoder(r.Body).Decode(&i); err != nil {
-			c.logger.Infof("json.NewDecoder: %v\n", err)
-			if err := c.SendStringResponse(&i, fmt.Sprintf("json.NewDecoder: %v", err)); err != nil {
-				c.logger.Infof("c.SendStringResponse: %v", err)
+			c.logger.Errorf("json.NewDecoder: %v\n", err)
+			if err := c.SendStringResponse(&i, fmt.Sprintf("Error decoding command: %v", err)); err != nil {
+				c.logger.Errorf("c.SendStringResponse: %v", err)
 			}
 			return
 		}
 
 		if i.Type == discordgo.InteractionPing {
 			if err := c.handlePing(w); err != nil {
-				c.logger.Infof("c.handlePing: %v", err)
+				c.logger.Errorf("c.handlePing: %v", err)
 			}
 			return
 		}
 
 		if err := c.SendDeferredResponse(w); err != nil {
-			c.logger.Infof("c.SendDeferredResponse: %v", err)
+			c.logger.Errorf("c.SendDeferredResponse: %v", err)
 		}
 		go func() {
 			c.pool <- func() {
 				if err := c.handlePost(w, &i, r); err != nil {
-					c.logger.Infof("handlePost: %v\n", err)
-					if err := c.SendStringResponse(&i, fmt.Sprintf("handlePost: %v", err)); err != nil {
-						c.logger.Infof("c.SendStringResponse: %v", err)
-					}
+					c.logger.Errorf("handlePost: %v\n", err)
 				}
 			}
 		}()
