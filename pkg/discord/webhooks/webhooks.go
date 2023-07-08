@@ -36,7 +36,7 @@ type ClientConfig struct {
 	ProjectID string
 	AppID     string
 	PoolSize  int
-	logger    logger.Logger
+	Logger    logger.Logger
 }
 
 func NewClient(cfg ClientConfig) (*Client, error) {
@@ -55,7 +55,7 @@ func NewClient(cfg ClientConfig) (*Client, error) {
 	if cfg.AppID == "" {
 		return nil, fmt.Errorf("config AppID must be set")
 	}
-	l := cfg.logger
+	l := cfg.Logger
 	if l == nil {
 		l = &logger.StandardLogger{}
 	}
