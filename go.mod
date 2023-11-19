@@ -8,6 +8,7 @@ require (
 	github.com/bwmarrin/discordgo v0.26.1
 	github.com/golang-migrate/migrate/v4 v4.16.2
 	github.com/mattn/go-sqlite3 v1.14.18
+	github.com/pkg/errors v0.9.1
 	google.golang.org/api v0.106.0
 )
 
