@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/thompsonja/discord_bots_lib/pkg/discord/channellogger"
 	"github.com/thompsonja/discord_bots_lib/pkg/discord/interactions"
 	"github.com/thompsonja/discord_bots_lib/pkg/gcp/secrets"
 	"github.com/thompsonja/discord_bots_lib/pkg/logger"
@@ -22,6 +23,7 @@ type Client struct {
 	projectID         string
 	session           *discordgo.Session
 	appID             string
+	channelLogger     *channellogger.ChannelLogger
 	interactionLogger *interactions.InteractionLogger
 	logger            logger.Logger
 	pool              chan func()
@@ -116,12 +118,36 @@ func (c *Client) SendDeferredResponse(w http.ResponseWriter) error {
 	})
 }
 
+func (c *Client) SendFilesMessage(channel string, files []*discordgo.File) error {
+	if err := c.updateSession(); err != nil {
+		return fmt.Errorf("c.updateSession: %v", err)
+	}
+
+	for _, f := range files {
+		c.channelLogger.SendFile(channel, f.Name, f.Reader)
+	}
+	return nil
+}
+
 func (c *Client) SendFilesResponse(i *discordgo.Interaction, files []*discordgo.File) error {
 	if err := c.updateSession(); err != nil {
 		return fmt.Errorf("c.updateSession: %v", err)
 	}
 
 	c.interactionLogger.SendEditedInteractionFiles(c.session, i, files)
+	return nil
+}
+
+func (c *Client) SendStringMessage(channel, msg string) error {
+	if err := c.updateSession(); err != nil {
+		return fmt.Errorf("c.updateSession: %v", err)
+	}
+
+	if channel == "" {
+		return fmt.Errorf("channel is empty")
+	}
+
+	c.channelLogger.SendMessage(channel, msg)
 	return nil
 }
 
@@ -152,7 +178,9 @@ func (c *Client) updateSession() error {
 		return fmt.Errorf("error creating Discord session: %v", err)
 	}
 
+	c.channelLogger = channellogger.New(d)
 	c.session = d
+
 	return nil
 }
 
