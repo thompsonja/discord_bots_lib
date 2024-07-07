@@ -6,9 +6,10 @@ import (
 	"net/http"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/pkg/errors"
 	"github.com/thompsonja/discord_bots_lib/pkg/discord/channellogger"
 	"github.com/thompsonja/discord_bots_lib/pkg/discord/interactions"
-	"github.com/thompsonja/discord_bots_lib/pkg/gcp/secrets"
+	"github.com/thompsonja/discord_bots_lib/pkg/discord/session"
 	"github.com/thompsonja/discord_bots_lib/pkg/logger"
 )
 
@@ -168,18 +169,13 @@ func (c *Client) updateSession() error {
 	if c.session != nil {
 		return nil
 	}
-	botKey, err := secrets.GetLatestSecretValue(c.secretKey, c.projectID)
+	s, err := session.GetSession(c.secretKey, c.projectID)
 	if err != nil {
-		return fmt.Errorf("error getting bot key: %v", err)
+		return errors.Wrap(err, "session.GetSession")
 	}
 
-	d, err := discordgo.New("Bot " + botKey)
-	if err != nil {
-		return fmt.Errorf("error creating Discord session: %v", err)
-	}
-
-	c.channelLogger = channellogger.New(d)
-	c.session = d
+	c.channelLogger = channellogger.New(s)
+	c.session = s
 
 	return nil
 }
