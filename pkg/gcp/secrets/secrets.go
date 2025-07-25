@@ -9,12 +9,11 @@ import (
 	"google.golang.org/api/iterator"
 )
 
-func GetLatestSecretValue(gcpSecretName, projectID string) (string, error) {
+func GetLatestSecretValue(ctx context.Context, gcpSecretName, projectID string) (string, error) {
 	if gcpSecretName == "" && projectID == "" {
 		return "", fmt.Errorf("gcpSecretName and projectID must be provided")
 	}
 
-	ctx := context.Background()
 	client, err := secretmanager.NewClient(ctx)
 	if err != nil {
 		return "", fmt.Errorf("secretmanager.NewClient: %v", err)
