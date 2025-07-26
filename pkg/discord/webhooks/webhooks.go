@@ -1,6 +1,7 @@
 package webhooks
 
 import (
+  "context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -119,8 +120,8 @@ func (c *Client) SendDeferredResponse(w http.ResponseWriter) error {
 	})
 }
 
-func (c *Client) SendFilesMessage(channel string, files []*discordgo.File) error {
-	if err := c.updateSession(); err != nil {
+func (c *Client) SendFilesMessage(ctx context.Context, channel string, files []*discordgo.File) error {
+	if err := c.updateSession(ctx); err != nil {
 		return fmt.Errorf("c.updateSession: %v", err)
 	}
 
@@ -130,8 +131,8 @@ func (c *Client) SendFilesMessage(channel string, files []*discordgo.File) error
 	return nil
 }
 
-func (c *Client) SendFilesResponse(i *discordgo.Interaction, files []*discordgo.File) error {
-	if err := c.updateSession(); err != nil {
+func (c *Client) SendFilesResponse(ctx context.Context, i *discordgo.Interaction, files []*discordgo.File) error {
+	if err := c.updateSession(ctx); err != nil {
 		return fmt.Errorf("c.updateSession: %v", err)
 	}
 
@@ -139,8 +140,8 @@ func (c *Client) SendFilesResponse(i *discordgo.Interaction, files []*discordgo.
 	return nil
 }
 
-func (c *Client) SendStringMessage(channel, msg string) error {
-	if err := c.updateSession(); err != nil {
+func (c *Client) SendStringMessage(ctx context.Context, channel, msg string) error {
+	if err := c.updateSession(ctx); err != nil {
 		return fmt.Errorf("c.updateSession: %v", err)
 	}
 
@@ -152,8 +153,8 @@ func (c *Client) SendStringMessage(channel, msg string) error {
 	return nil
 }
 
-func (c *Client) SendStringResponse(i *discordgo.Interaction, msg string) error {
-	if err := c.updateSession(); err != nil {
+func (c *Client) SendStringResponse(ctx context.Context, i *discordgo.Interaction, msg string) error {
+	if err := c.updateSession(ctx); err != nil {
 		return fmt.Errorf("c.updateSession: %v", err)
 	}
 
@@ -165,11 +166,11 @@ func (c *Client) SendStringResponse(i *discordgo.Interaction, msg string) error 
 	return nil
 }
 
-func (c *Client) updateSession() error {
+func (c *Client) updateSession(ctx context.Context) error {
 	if c.session != nil {
 		return nil
 	}
-	s, err := session.GetSession(c.secretKey, c.projectID)
+	s, err := session.GetSession(ctx, c.secretKey, c.projectID)
 	if err != nil {
 		return errors.Wrap(err, "session.GetSession")
 	}
@@ -180,15 +181,15 @@ func (c *Client) updateSession() error {
 	return nil
 }
 
-func (c *Client) GetSession() (*discordgo.Session, error) {
-	if err := c.updateSession(); err != nil {
+func (c *Client) GetSession(ctx context.Context) (*discordgo.Session, error) {
+	if err := c.updateSession(ctx); err != nil {
 		return nil, fmt.Errorf("c.updateSession: %v", err)
 	}
 	return c.session, nil
 }
 
-func (c *Client) DeleteCommands() error {
-	if err := c.updateSession(); err != nil {
+func (c *Client) DeleteCommands(ctx context.Context) error {
+	if err := c.updateSession(ctx); err != nil {
 		return fmt.Errorf("c.updateSession: %v", err)
 	}
 	cmds, err := c.session.ApplicationCommands(c.appID, "")
@@ -204,8 +205,8 @@ func (c *Client) DeleteCommands() error {
 	return nil
 }
 
-func (c *Client) UpdateCommands() error {
-	if err := c.updateSession(); err != nil {
+func (c *Client) UpdateCommands(ctx context.Context) error {
+	if err := c.updateSession(ctx); err != nil {
 		return fmt.Errorf("c.updateSession: %v", err)
 	}
 	for _, v := range c.commands {
@@ -252,7 +253,7 @@ func (c *Client) ListenAndServe() error {
 		var i discordgo.Interaction
 		if err := json.NewDecoder(r.Body).Decode(&i); err != nil {
 			c.logger.Errorf("json.NewDecoder: %v\n", err)
-			if err := c.SendStringResponse(&i, fmt.Sprintf("Error decoding command: %v", err)); err != nil {
+			if err := c.SendStringResponse(r.Context(), &i, fmt.Sprintf("Error decoding command: %v", err)); err != nil {
 				c.logger.Errorf("c.SendStringResponse: %v", err)
 			}
 			return
@@ -280,10 +281,10 @@ func (c *Client) ListenAndServe() error {
 	return http.ListenAndServe(fmt.Sprintf(":%d", c.port), nil)
 }
 
-func (c *Client) Run(destroyCommands, updateCommands bool) error {
+func (c *Client) Run(ctx context.Context, destroyCommands, updateCommands bool) error {
 	if destroyCommands {
 		c.logger.Info("Destroying commands...")
-		if err := c.DeleteCommands(); err != nil {
+		if err := c.DeleteCommands(ctx); err != nil {
 			return fmt.Errorf("c.DestroyCommands: %v", err)
 		}
 		c.logger.Info("Done")
@@ -291,7 +292,7 @@ func (c *Client) Run(destroyCommands, updateCommands bool) error {
 
 	if updateCommands {
 		c.logger.Info("Adding commands...")
-		if err := c.UpdateCommands(); err != nil {
+		if err := c.UpdateCommands(ctx); err != nil {
 			return fmt.Errorf("c.UpdateCommands: %v", err)
 		}
 		c.logger.Info("Done")
