@@ -6,6 +6,7 @@ import (
 
 	secretmanager "cloud.google.com/go/secretmanager/apiv1"
 	"cloud.google.com/go/secretmanager/apiv1/secretmanagerpb"
+	"github.com/cenkalti/backoff/v4"
 	"google.golang.org/api/iterator"
 )
 
@@ -20,21 +21,47 @@ func GetLatestSecretValue(ctx context.Context, gcpSecretName, projectID string) 
 	}
 	defer client.Close()
 
-	version, err := client.ListSecretVersions(ctx, &secretmanagerpb.ListSecretVersionsRequest{
-		Parent: fmt.Sprintf("projects/%s/secrets/%s", projectID, gcpSecretName),
-	}).Next()
-	if err == iterator.Done {
-		return "", fmt.Errorf("no secret versions for secret %s in project %s", gcpSecretName, projectID)
-	}
-	if err != nil {
-		return "", fmt.Errorf("client.ListSecretVersions: %v", err)
+	var version *secretmanagerpb.SecretVersion
+	listVersionsOp := func() error {
+		it := client.ListSecretVersions(ctx, &secretmanagerpb.ListSecretVersionsRequest{
+			Parent: fmt.Sprintf("projects/%s/secrets/%s", projectID, gcpSecretName),
+		})
+
+		v, err := it.Next()
+		if err == iterator.Done {
+			return backoff.Permanent(fmt.Errorf("no secret versions for secret %s", gcpSecretName))
+		}
+		if err != nil {
+			return fmt.Errorf("ListSecretVersions failed: %w", err)
+		}
+
+		version = v
+		return nil
 	}
 
-	result, err := client.AccessSecretVersion(ctx, &secretmanagerpb.AccessSecretVersionRequest{
-		Name: version.Name,
-	})
+	// Retry with exponential backoff
+	err = backoff.Retry(listVersionsOp, backoff.WithContext(backoff.NewExponentialBackOff(), ctx))
 	if err != nil {
-		return "", fmt.Errorf("client.AccessSecretVersion: %v", err)
+		return "", fmt.Errorf("backoff.Retry for ListSecretVersions: %w", err)
+	}
+
+	var result *secretmanagerpb.AccessSecretVersionResponse
+	accessSecretOp := func() error {
+		res, err := client.AccessSecretVersion(ctx, &secretmanagerpb.AccessSecretVersionRequest{
+			Name: version.Name,
+		})
+		if err != nil {
+			return fmt.Errorf("client.AccessSecretVersion: %v", err)
+		}
+
+		result = res
+		return nil
+	}
+
+	// Retry with exponential backoff
+	err = backoff.Retry(accessSecretOp, backoff.WithContext(backoff.NewExponentialBackOff(), ctx))
+	if err != nil {
+		return "", fmt.Errorf("backoff.Retry for AccessSecretVersion: %w", err)
 	}
 
 	return string(result.Payload.Data), nil

@@ -6,6 +6,7 @@ require (
 	cloud.google.com/go/logging v1.6.1
 	cloud.google.com/go/secretmanager v1.9.0
 	github.com/bwmarrin/discordgo v0.26.1
+	github.com/cenkalti/backoff/v4 v4.1.2
 	github.com/golang-migrate/migrate/v4 v4.16.2
 	github.com/mattn/go-sqlite3 v1.14.18
 	github.com/pkg/errors v0.9.1
